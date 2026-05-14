@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_ME_SET_JWT_SECRET_ENV_VAR_insecure_fallback';
 
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
