@@ -20,6 +20,7 @@ import UsagePage from './pages/UsagePage';
 import SharePage from './pages/SharePage';
 import PersonaGeneratorPage from './pages/PersonaGeneratorPage';
 import IntegrationsPage from './pages/IntegrationsPage';
+import CustomViewsPage from './pages/CustomViewsPage';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('token');
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/usage" element={<PrivateRoute><UsagePage /></PrivateRoute>} />
         <Route path="/persona-generator" element={<PrivateRoute><PersonaGeneratorPage /></PrivateRoute>} />
         <Route path="/integrations" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
+        <Route path="/custom-views" element={<PrivateRoute><CustomViewsPage /></PrivateRoute>} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </>

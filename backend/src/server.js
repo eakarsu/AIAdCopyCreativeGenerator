@@ -136,3 +136,6 @@ app.use('/api/gap-industry-benchmark-performance-comparisons', require('./routes
 app.use('/api/gap-direct-ad-platform-upload-integration', require('./routes/gap_direct_ad_platform_upload_integration'));
 app.use('/api/gap-notifications-webhooks-subsystem', require('./routes/gap_notifications_webhooks_subsystem'));
 app.use('/api/gap-reporting-analytics-dashboard', require('./routes/gap_reporting_analytics_dashboard'));
+
+// Bespoke custom views (Campaign Analytics: A/B Test Funnel + Variant Gallery)
+app.use('/api/custom-views', require('./routes/customViews'));
