@@ -21,6 +21,10 @@ import SharePage from './pages/SharePage';
 import PersonaGeneratorPage from './pages/PersonaGeneratorPage';
 import IntegrationsPage from './pages/IntegrationsPage';
 import CustomViewsPage from './pages/CustomViewsPage';
+import AdComplianceMatrixPage from './pages/AdComplianceMatrixPage';
+
+import CodexCustomVizFeature from './pages/CodexCustomVizFeature';
+import CodexOperationsFeature from './pages/CodexOperationsFeature';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('token');
@@ -32,6 +36,9 @@ export default function App() {
     <>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <Routes>
+        <Route path="/codex/custom-viz" element={<CodexCustomVizFeature />} />
+        <Route path="/codex/operations" element={<CodexOperationsFeature />} />
+
         <Route path="/login" element={<Login />} />
         <Route path="/share/:token" element={<SharePage />} />
         <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
@@ -53,6 +60,7 @@ export default function App() {
         <Route path="/persona-generator" element={<PrivateRoute><PersonaGeneratorPage /></PrivateRoute>} />
         <Route path="/integrations" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
         <Route path="/custom-views" element={<PrivateRoute><CustomViewsPage /></PrivateRoute>} />
+        <Route path="/ad-compliance" element={<PrivateRoute><AdComplianceMatrixPage /></PrivateRoute>} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </>

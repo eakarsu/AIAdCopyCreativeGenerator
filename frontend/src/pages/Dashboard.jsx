@@ -27,6 +27,7 @@ const FEATURES = [
 ];
 
 const ADVANCED_TOOLS = [
+  { path: '/custom-views', title: 'Campaign Analytics', description: 'A/B test funnel & creative variant gallery', icon: FiBarChart2, color: '#ec4899' },
   { path: '/ab-tests', title: 'A/B Testing Framework', description: 'Generate variant pairs, track winners', icon: FiAward, color: '#ec4899' },
   { path: '/brand-voice-check', title: 'Brand Voice Checker', description: 'Score copy against brand guidelines', icon: FiMic, color: '#eab308' },
   { path: '/benchmark', title: 'Performance Benchmarking', description: 'Compare copy vs industry benchmarks', icon: FiBarChart2, color: '#06b6d4' },

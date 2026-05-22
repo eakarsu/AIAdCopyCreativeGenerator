@@ -139,3 +139,4 @@ app.use('/api/gap-reporting-analytics-dashboard', require('./routes/gap_reportin
 
 // Bespoke custom views (Campaign Analytics: A/B Test Funnel + Variant Gallery)
 app.use('/api/custom-views', require('./routes/customViews'));
+app.use('/api/ad-compliance', require('./routes/adComplianceMatrix'));
