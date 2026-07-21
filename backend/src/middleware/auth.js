@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_ME_SET_JWT_SECRET_ENV_VAR_insecure_fallback';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32) throw new Error('JWT_SECRET must be at least 32 characters');
 
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;

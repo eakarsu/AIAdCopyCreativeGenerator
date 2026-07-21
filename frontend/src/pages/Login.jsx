@@ -25,11 +25,6 @@ export default function Login() {
     }
   };
 
-  const fillDemo = () => {
-    setEmail('admin@adcopy.ai');
-    setPassword('admin123');
-  };
-
   return (
     <div className="login-page">
       <div className="login-container">
@@ -49,9 +44,6 @@ export default function Login() {
           </div>
           <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
             {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-          <button type="button" className="btn btn-outline btn-full" onClick={fillDemo}>
-            Fill Demo Credentials
           </button>
         </form>
         <p className="login-footer">Powered by OpenRouter AI</p>

@@ -1,13 +1,19 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must be configured with at least 32 characters');
+}
+if (!process.env.DATABASE_URL && !process.env.DB_PASSWORD) {
+  throw new Error('DATABASE_URL or DB_PASSWORD must be configured');
+}
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
 const pool = require('./db');
-const { initDb } = require('./db');
 
 const authRoutes = require('./routes/auth');
 const featuresRoutes = require('./routes/features');
@@ -90,6 +96,7 @@ app.use('/api/campaigns', campaignRoutes);
 
 // Brand profile routes
 app.use('/api/brand-profiles', brandProfileRoutes);
+app.use('/api/publishing-workflows', require('./routes/publishingWorkflow'));
 
 // Public share route (no auth)
 app.use('/api/share', shareRoutes);
@@ -103,40 +110,8 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-async function start() {
-  try {
-    await initDb();
-    app.listen(PORT, () => {
-      console.log(`Backend server running on port ${PORT}`);
-    });
-  } catch (err) {
-    console.error('Failed to start server:', err.message);
-    process.exit(1);
-  }
-}
-
-start();
+app.listen(PORT, () => {
+  console.log(`Backend server running on port ${PORT}`);
+});
 
 module.exports = app;
-
-// BATCH_00_AUDIT_MOUNTS
-app.use('/api/competitor-monitor', require('./routes/competitorMonitor'));
-app.use('/api/audience-persona', require('./routes/audiencePersona'));
-app.use('/api/multi-language-copy', require('./routes/multiLanguageCopy'));
-app.use('/api/visual-copy-pair', require('./routes/visualCopyPair'));
-app.use('/api/ad-platform-bridge', require('./routes/adPlatformBridge'));
-
-// === Batch 00 Gaps & Frontend Mounts ===
-app.use('/api/gap-ai-competitor-copy-analysis-extracting', require('./routes/gap_ai_competitor_copy_analysis_extracting'));
-app.use('/api/gap-ai-audience-sentiment-modeling-resonance', require('./routes/gap_ai_audience_sentiment_modeling_resonance'));
-app.use('/api/gap-ai-visual-image-pairing-recommendation', require('./routes/gap_ai_visual_image_pairing_recommendation'));
-app.use('/api/gap-ai-multilingual-variant-generation', require('./routes/gap_ai_multilingual_variant_generation'));
-app.use('/api/gap-multi-platform-templates-meta-google', require('./routes/gap_multi_platform_templates_meta_google'));
-app.use('/api/gap-industry-benchmark-performance-comparisons', require('./routes/gap_industry_benchmark_performance_comparisons'));
-app.use('/api/gap-direct-ad-platform-upload-integration', require('./routes/gap_direct_ad_platform_upload_integration'));
-app.use('/api/gap-notifications-webhooks-subsystem', require('./routes/gap_notifications_webhooks_subsystem'));
-app.use('/api/gap-reporting-analytics-dashboard', require('./routes/gap_reporting_analytics_dashboard'));
-
-// Bespoke custom views (Campaign Analytics: A/B Test Funnel + Variant Gallery)
-app.use('/api/custom-views', require('./routes/customViews'));
-app.use('/api/ad-compliance', require('./routes/adComplianceMatrix'));

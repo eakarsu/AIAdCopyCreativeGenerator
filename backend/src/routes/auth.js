@@ -9,10 +9,8 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 
-if (!JWT_SECRET) {
-  console.error('CRITICAL: JWT_SECRET environment variable is not set. Using insecure default — set JWT_SECRET in production!');
-}
-const EFFECTIVE_JWT_SECRET = JWT_SECRET || 'CHANGE_ME_SET_JWT_SECRET_ENV_VAR_' + Date.now();
+if (!JWT_SECRET || JWT_SECRET.length < 32) throw new Error('JWT_SECRET must be at least 32 characters');
+const EFFECTIVE_JWT_SECRET = JWT_SECRET;
 
 // Validation schemas
 const registerSchema = Joi.object({
@@ -43,7 +41,7 @@ router.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     const result = await pool.query(
-      'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING id, email, name, created_at',
+      'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING id, email, name, role, created_at',
       [email.toLowerCase(), hashedPassword, name || null]
     );
 
@@ -55,7 +53,7 @@ router.post('/register', async (req, res) => {
       [user.id]
     );
 
-    const token = jwt.sign({ id: user.id, email: user.email }, EFFECTIVE_JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, EFFECTIVE_JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
     res.status(201).json({
       token,
@@ -86,7 +84,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email }, EFFECTIVE_JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, EFFECTIVE_JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
     res.json({
       token,
