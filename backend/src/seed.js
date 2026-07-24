@@ -4,6 +4,12 @@ const bcrypt = require('bcryptjs');
 const pool = require('./db');
 const { initDb } = require('./db');
 
+function requireDemoPassword() {
+  const password = process.env.DEMO_PASSWORD || process.env.SEED_DEMO_PASSWORD || process.env.DEMO_SEED_PASSWORD || '';
+  if (password.length < 12 || password.length > 1024) throw new Error('DEMO_PASSWORD must contain 12-1024 characters');
+  return password;
+}
+
 async function seed() {
   console.log('Starting database seed...');
 
@@ -11,7 +17,7 @@ async function seed() {
 
   // Create demo user
   const email = 'admin@adcopy.ai';
-  const password = 'admin123';
+  const password = requireDemoPassword();
   const salt = await bcrypt.genSalt(12);
   const hashed = await bcrypt.hash(password, salt);
 
