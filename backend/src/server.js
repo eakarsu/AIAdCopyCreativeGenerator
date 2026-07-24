@@ -12,6 +12,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = rateLimit;
 
 const pool = require('./db');
 
@@ -72,7 +73,7 @@ const aiRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 20,
   keyGenerator: (req) => {
-    return req.user ? String(req.user.id) : req.ip;
+    return req.user ? String(req.user.id) : ipKeyGenerator(req.ip);
   },
   message: { error: 'Too many AI requests. Limit is 20 per hour per user. Please try again later.' },
   standardHeaders: true,
@@ -81,6 +82,7 @@ const aiRateLimiter = rateLimit({
 
 // Apply general limiter globally
 app.use(generalLimiter);
+app.use('/api', require('../runtimeAcceptance'));
 
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/features', featuresRoutes);

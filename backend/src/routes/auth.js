@@ -14,13 +14,13 @@ const EFFECTIVE_JWT_SECRET = JWT_SECRET;
 
 // Validation schemas
 const registerSchema = Joi.object({
-  email: Joi.string().email().max(255).required(),
+  email: Joi.string().email({ tlds: { allow: false } }).max(255).required(),
   password: Joi.string().min(8).max(128).required(),
   name: Joi.string().min(1).max(255).optional().allow(''),
 });
 
 const loginSchema = Joi.object({
-  email: Joi.string().email().max(255).required(),
+  email: Joi.string().email({ tlds: { allow: false } }).max(255).required(),
   password: Joi.string().min(1).max(128).required(),
 });
 
