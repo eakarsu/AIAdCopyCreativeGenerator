@@ -82,9 +82,9 @@ const aiRateLimiter = rateLimit({
 
 // Apply general limiter globally
 app.use(generalLimiter);
-app.use('/api', require('../runtimeAcceptance'));
 
 app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api', require('../runtimeAcceptance'));
 app.use('/api/features', featuresRoutes);
 
 // AI routes: auth first, then rate limit

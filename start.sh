@@ -97,6 +97,8 @@ if [[ ! -d backend/node_modules || ! -d frontend/node_modules ]]; then
   exit 1
 fi
 
+(cd backend && npm run create-admin)
+
 for port in "${BACKEND_PORT:-3001}" "${FRONTEND_PORT:-3000}"; do
   if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "Port $port is occupied; refusing to terminate another process." >&2
