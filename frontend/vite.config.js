@@ -19,6 +19,14 @@ export default defineConfig({
       '/api': {
         target: `http://localhost:${process.env.BACKEND_PORT || 3801}`,
         changeOrigin: true,
+        configure(proxy) {
+          proxy.on('proxyReq', (upstream, req, res) => {
+            const abort = () => upstream.destroy();
+            req.once('aborted', abort);
+            res.once('close', () => { if (!res.writableEnded) abort(); });
+            if (req.aborted || res.destroyed) abort();
+          });
+        },
       },
     },
   },

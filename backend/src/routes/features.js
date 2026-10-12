@@ -1,6 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
-const pool = require('../db');
+const nativeRequest = require('../services/nativeRequest');
+const pool = nativeRequest.requestPool(require('../db'));
 const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
@@ -14,6 +15,8 @@ const ALLOWED_FEATURES = [
 
 // All routes require auth
 router.use(authMiddleware);
+nativeRequest.installNativeRequest(router);
+router.use((req,res,next)=>{nativeRequest.beforeCommit(async client=>{if(!(await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[req.user.id])).rows.length)throw Object.assign(new Error('The saved account is no longer available.'),{status:401});});next();});
 
 // Validation schemas
 const listSchema = Joi.object({
@@ -41,7 +44,7 @@ router.get('/stats', async (req, res) => {
       ),
       pool.query(
         `SELECT COUNT(*) as count FROM generated_content
-         WHERE user_id = $1 AND DATE(created_at) = CURRENT_DATE`,
+         WHERE user_id = $1 AND is_demo=FALSE AND DATE(created_at) = CURRENT_DATE`,
         [userId]
       ),
       pool.query(
@@ -66,7 +69,7 @@ router.get('/stats', async (req, res) => {
     });
   } catch (err) {
     console.error('Stats error:', err);
-    res.status(500).json({ error: 'Failed to fetch stats' });
+    res.status(err.status || 500).json({ error: 'Failed to fetch stats' });
   }
 });
 
@@ -113,7 +116,7 @@ router.get('/', async (req, res) => {
 
     const dataParams = [...params, limit, offset];
     const dataResult = await pool.query(
-      `SELECT id, user_id, feature_type, prompt, result, tokens_used, campaign_id, ab_test_id, is_favorite, created_at
+      `SELECT id, user_id, feature_type, prompt, result, tokens_used, campaign_id, ab_test_id, is_favorite, is_demo, demo_label, input, model, provider_receipt, created_at
        FROM generated_content ${whereClause}
        ORDER BY created_at DESC
        LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
@@ -131,7 +134,7 @@ router.get('/', async (req, res) => {
     });
   } catch (err) {
     console.error('List generated_content error:', err);
-    res.status(500).json({ error: 'Failed to fetch items' });
+    res.status(err.status || 500).json({ error: 'Failed to fetch items' });
   }
 });
 
@@ -143,7 +146,7 @@ router.get('/:id', async (req, res) => {
     const userId = req.user.id;
 
     const result = await pool.query(
-      `SELECT id, user_id, feature_type, prompt, result, tokens_used, campaign_id, ab_test_id, is_favorite, created_at
+      `SELECT id, user_id, feature_type, prompt, result, tokens_used, campaign_id, ab_test_id, is_favorite, is_demo, demo_label, input, model, provider_receipt, created_at
        FROM generated_content WHERE id = $1 AND user_id = $2`,
       [id, userId]
     );
@@ -155,7 +158,7 @@ router.get('/:id', async (req, res) => {
     res.json({ data: result.rows[0] });
   } catch (err) {
     console.error('Get generated_content error:', err);
-    res.status(500).json({ error: 'Failed to fetch item' });
+    res.status(err.status || 500).json({ error: 'Failed to fetch item' });
   }
 });
 
@@ -181,7 +184,7 @@ router.patch('/:id/favorite', async (req, res) => {
     res.json({ id: result.rows[0].id, is_favorite: result.rows[0].is_favorite });
   } catch (err) {
     console.error('Toggle favorite error:', err);
-    res.status(500).json({ error: 'Failed to toggle favorite' });
+    res.status(err.status || 500).json({ error: 'Failed to toggle favorite' });
   }
 });
 
@@ -204,7 +207,7 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'Item deleted successfully', id: result.rows[0].id });
   } catch (err) {
     console.error('Delete generated_content error:', err);
-    res.status(500).json({ error: 'Failed to delete item' });
+    res.status(err.status || 500).json({ error: 'Failed to delete item' });
   }
 });
 

@@ -1,73 +1,10 @@
-import { useNavigate } from 'react-router-dom';
-import { FiArrowLeft, FiBarChart2, FiLogOut } from 'react-icons/fi';
-import ABTestFunnel from '../components/ABTestFunnel';
-import VariantGallery from '../components/VariantGallery';
-import GoogleAdsExporter from '../components/GoogleAdsExporter';
-import BrandVoiceEditor from '../components/BrandVoiceEditor';
-
-/**
- * CustomViewsPage
- * --------------------------------------------------------------------
- * Bespoke "Campaign Analytics" page combining:
- *   1. ABTestFunnel  — recharts side-by-side comparison of variant A vs B
- *   2. VariantGallery — CSS grid of generated ad variant cards
- */
-export default function CustomViewsPage() {
-  const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/login');
-  };
-
-  return (
-    <div className="dashboard" style={{ minHeight: '100vh', background: '#020617' }}>
-      <header className="dashboard-header">
-        <div className="header-left">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="btn btn-ghost"
-            style={{ marginRight: 12 }}
-            data-testid="back-to-dashboard"
-          >
-            <FiArrowLeft /> Back
-          </button>
-          <div className="header-logo" style={{ background: '#ec4899' }}>
-            <FiBarChart2 size={18} color="#fff" />
-          </div>
-          <div>
-            <h1>Campaign Analytics</h1>
-            <p>A/B test funnel & creative variant gallery</p>
-          </div>
-        </div>
-        <div className="header-right">
-          <span className="user-email">{user.name || user.email}</span>
-          <button className="btn btn-ghost" onClick={handleLogout}>
-            <FiLogOut /> Logout
-          </button>
-        </div>
-      </header>
-
-      <main className="dashboard-main" style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-        <section data-testid="section-funnel">
-          <ABTestFunnel />
-        </section>
-
-        <section data-testid="section-gallery">
-          <VariantGallery />
-        </section>
-
-        <section data-testid="section-google-ads-export">
-          <GoogleAdsExporter />
-        </section>
-
-        <section data-testid="section-brand-voice">
-          <BrandVoiceEditor />
-        </section>
-      </main>
-    </div>
-  );
-}
+import {useEffect,useState} from 'react';
+import {useNavigate} from 'react-router-dom';
+import api from '../services/api';
+import NativeListState,{useNativeList,nativeLoadError} from '../components/NativeListState';
+import NativeHistory from '../components/NativeHistory';
+import NativeDraftRecords from '../components/NativeDraftRecords';
+import {reportText} from '../components/AIReport';
+export default function CampaignAnalytics(){const navigate=useNavigate();return <main className="page-container"><button type="button" className="btn btn-ghost" onClick={()=>navigate('/')}>Back</button><h1>Campaign Analytics</h1><section className="card"><h2>A/B funnel measurements</h2><p>No native impressions, clicks or conversion measurements are stored. CTR, lift and measured winners remain unavailable until a real measurement integration supplies them. Saved variants are reviewable drafts.</p></section><DraftExporter/><NativeHistory embedded/><NativeDraftRecords kind="profiles" embedded/></main>;}
+export function DraftExporter(){const list=useNativeList('/campaigns',{limit:100}),[id,setId]=useState(''),[error,setError]=useState(''),[pending,setPending]=useState(false),[message,setMessage]=useState('');async function download(){if(!id||pending)return;setPending(true);setError('');try{const {data}=await api.get('/campaigns/'+id);if(!data.data?.id||!Array.isArray(data.data.content))throw Error('Saved campaign data was invalid.');const quote=value=>'"'+String(value??'').replaceAll('"','""')+'"';const rows=[['Campaign','Native draft ID','Feature','Readable copy','Provenance'],...data.data.content.map(item=>[data.data.name,item.id,item.feature_type,reportText(item.result),item.is_demo?item.demo_label:'Saved native draft'])];const blob=new Blob([rows.map(row=>row.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='campaign-review-drafts.csv';anchor.click();URL.revokeObjectURL(url);setMessage('Saved campaign draft CSV downloaded for review. No publication or delivery occurred.');}catch(error){setError(nativeLoadError(error));}finally{setPending(false);}}return <section className="card"><h2>Campaign draft export</h2><p className="ai-muted">Downloads actual saved copy for review. Final URLs, licensed assets and platform requirements are not supplied; this is not an approved bulk upload.</p><NativeListState {...list} onRetry={list.reload}/><label>Actual saved campaign<select value={id} onChange={event=>setId(event.target.value)}><option value="">Choose a saved campaign</option>{list.items.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button type="button" className="btn btn-outline" disabled={!id||pending||list.error||list.loading} onClick={download}>Download saved draft CSV</button>{error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}</section>;}
+export function NativeUsage(){const navigate=useNavigate(),[data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[revision,setRevision]=useState(0);useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');api.get('/ai/usage',{signal:controller.signal}).then(({data})=>{if(!data||!Number.isFinite(data.tokens_used)||!Number.isFinite(data.monthly_limit)||!Array.isArray(data.daily_usage)||!Array.isArray(data.by_feature))throw Error('Saved usage response was invalid.');if(!controller.signal.aborted)setData(data);}).catch(error=>{if(!controller.signal.aborted)setError(nativeLoadError(error));}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();},[revision]);return <main className="page-container"><button type="button" className="btn btn-ghost" onClick={()=>navigate('/')}>Back</button><h1>Usage & Analytics</h1><NativeListState loading={loading} error={error} onRetry={()=>setRevision(value=>value+1)}/>{data&&!error&&!loading&&<><p>Measured provider token usage only. Manually authored training drafts are excluded from these generation counts.</p><div className="dashboard-stats"><div className="stat-card"><h3>{data.tokens_used.toLocaleString()}</h3><p>Recorded monthly tokens</p></div><div className="stat-card"><h3>{data.monthly_limit.toLocaleString()}</h3><p>Native quota</p></div></div><h2>Usage by feature</h2><table><thead><tr><th>Feature</th><th>Saved provider generations</th><th>Reported tokens</th></tr></thead><tbody>{data.by_feature.map(item=><tr key={item.feature_type}><td>{item.feature_type}</td><td>{item.count}</td><td>{item.tokens??'Unknown'}</td></tr>)}</tbody></table>{!data.by_feature.length&&<p>No genuine provider generations recorded for this account.</p>}<h2>Daily native usage</h2><table><thead><tr><th>Date</th><th>Generations</th><th>Tokens</th></tr></thead><tbody>{data.daily_usage.map(item=><tr key={item.date}><td>{String(item.date).slice(0,10)}</td><td>{item.generations}</td><td>{item.tokens??'Unknown'}</td></tr>)}</tbody></table></>}</main>;}

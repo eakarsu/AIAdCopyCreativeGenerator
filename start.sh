@@ -87,6 +87,20 @@ set -a
 source .env
 set +a
 
+# Use each real native sign-in contract; never assume the two account pairs match.
+if [[ "${NODE_ENV:-development}" != production && "${ENABLE_DEMO_CREDENTIAL_AUTOFILL:-true}" == true ]]; then
+  export VITE_DEMO_EMAIL="${SEED_ADMIN_EMAIL:-${ADMIN_EMAIL:-${PROVISION_ADMIN_EMAIL:-}}}"
+  export VITE_DEMO_PASSWORD="${SEED_ADMIN_PASSWORD:-${ADMIN_PASSWORD:-${PROVISION_ADMIN_PASSWORD:-}}}"
+  export VITE_RUNTIME_DEMO_EMAIL="${PROVISION_ADMIN_EMAIL:-${ADMIN_EMAIL:-}}"
+  export VITE_RUNTIME_DEMO_PASSWORD="${PROVISION_ADMIN_PASSWORD:-${ADMIN_PASSWORD:-}}"
+  export VITE_ENABLE_DEMO_CREDENTIAL_AUTOFILL=false VITE_RUNTIME_ENABLE_DEMO_CREDENTIAL_AUTOFILL=false
+  if [[ -n "$VITE_DEMO_EMAIL" && -n "$VITE_DEMO_PASSWORD" ]]; then export VITE_ENABLE_DEMO_CREDENTIAL_AUTOFILL=true; else unset VITE_DEMO_EMAIL VITE_DEMO_PASSWORD; fi
+  if [[ -n "$VITE_RUNTIME_DEMO_EMAIL" && -n "$VITE_RUNTIME_DEMO_PASSWORD" ]]; then export VITE_RUNTIME_ENABLE_DEMO_CREDENTIAL_AUTOFILL=true; else unset VITE_RUNTIME_DEMO_EMAIL VITE_RUNTIME_DEMO_PASSWORD; fi
+else
+  export VITE_ENABLE_DEMO_CREDENTIAL_AUTOFILL=false VITE_RUNTIME_ENABLE_DEMO_CREDENTIAL_AUTOFILL=false
+  unset VITE_DEMO_EMAIL VITE_DEMO_PASSWORD VITE_RUNTIME_DEMO_EMAIL VITE_RUNTIME_DEMO_PASSWORD
+fi
+
 export RUNTIME_PROJECT_NAME="AI Ad Copy Creative Generator"
 export RUNTIME_AI_ENDPOINT="/api/ai/ad-creative-review"
 export RUNTIME_AI_FEATURE="ad-creative-governance-review"
@@ -97,14 +111,20 @@ if [[ ! -d backend/node_modules || ! -d frontend/node_modules ]]; then
   exit 1
 fi
 
-(cd backend && npm run create-admin)
-
 for port in "${BACKEND_PORT:-3001}" "${FRONTEND_PORT:-3000}"; do
   if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "Port $port is occupied; refusing to terminate another process." >&2
     exit 1
   fi
 done
+
+# Apply reviewed additive migrations before loading the current native routes.
+(cd backend && npm run migrate)
+(cd backend && npm run create-admin)
+if [[ "${NODE_ENV:-development}" != production ]]; then
+  # Only clearly labeled, manually authored training drafts; no provider receipts or approvals.
+  (cd backend && node scripts/seed-domain-drafts.js)
+fi
 
 (cd backend && npm start) &
 backend_pid=$!

@@ -1,5 +1,5 @@
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env'), quiet: true });
 
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
   throw new Error('JWT_SECRET must be configured with at least 32 characters');
@@ -84,6 +84,7 @@ const aiRateLimiter = rateLimit({
 app.use(generalLimiter);
 
 app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/runtime-auth', authLimiter);
 app.use('/api', require('../runtimeAcceptance'));
 app.use('/api/features', featuresRoutes);
 
@@ -95,6 +96,7 @@ app.use('/api/ab-tests', abTestRoutes);
 
 // Campaign routes
 app.use('/api/campaigns', campaignRoutes);
+app.use('/api/operations', require('./routes/operations'));
 
 // Brand profile routes
 app.use('/api/brand-profiles', brandProfileRoutes);
@@ -107,13 +109,23 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+
+// Advisory AI reports only; native execution and approval routes stay unchanged.
+const aiWorkspaceSupport = require("../aiWorkspaceAdapters.cjs");
+const aiWorkspaceDatabase = require("./db.js");
+app.use('/api/report-workspace', require("../aiWorkspace.cjs").createAIWorkspaceRouter({
+  pool: aiWorkspaceDatabase, authenticateToken: aiWorkspaceSupport.runtimeSessionAuth(aiWorkspaceDatabase, require("./middleware/auth.js")),
+  aiRateLimiter: aiWorkspaceSupport.createWorkspaceLimiter(), features: require("../aiWorkspaceFeatures.json"),
+}));
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend server running on port ${PORT}`);
-});
-
-module.exports = app;
+async function start(){
+  await require('./services/runtimeProvisioning').provisionRuntimeAccount(pool);
+  return app.listen(PORT,()=>console.log('Backend server running on port '+PORT));
+}
+module.exports=app;
+module.exports.start=start;
+if(require.main===module)start().catch(error=>{console.error(error.message);process.exitCode=1;});

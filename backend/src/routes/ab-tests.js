@@ -1,6 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
-const pool = require('../db');
+const nativeRequest = require('../services/nativeRequest');
+const pool = nativeRequest.requestPool(require('../db'));
 const authMiddleware = require('../middleware/auth');
 const { generateWithAI } = require('../services/openrouter');
 
@@ -8,6 +9,8 @@ const router = express.Router();
 
 // All routes require auth
 router.use(authMiddleware);
+nativeRequest.installNativeRequest(router);
+router.use((req,res,next)=>{nativeRequest.beforeCommit(async client=>{const user=await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[req.user.id]);if(!user.rows.length)throw Object.assign(new Error('The saved account is no longer available. Sign in again.'),{status:401});});next();});
 
 const createSchema = Joi.object({
   campaign_id: Joi.number().integer().positive().optional(),
@@ -29,14 +32,28 @@ router.post('/', async (req, res) => {
     const { campaign_id, product_description, target_audience, hypothesis } = value;
     const userId = req.user.id;
 
+    // Verify campaign_id belongs to user if provided
+    if (campaign_id) {
+      const campaignCheck = await pool.query(
+        `SELECT id FROM campaigns WHERE id = $1 AND user_id = $2`,
+        [campaign_id, userId]
+      );
+      if (campaignCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Campaign not found or does not belong to you.' });
+      }
+    }
+
+    nativeRequest.beforeCommit(async client=>{if(campaign_id&&!(await client.query('SELECT id FROM campaigns WHERE id=$1 AND user_id=$2 FOR SHARE',[campaign_id,userId])).rows.length)throw Object.assign(new Error('The selected campaign changed during generation.'),{status:409});});
     const audienceContext = target_audience ? `Target audience: ${target_audience}` : '';
 
     const promptA = `Product: ${product_description}
 ${audienceContext}
+Hypothesis: ${hypothesis || 'Not specified'}
 Generate compelling headline variations for this product. Focus on clarity and value proposition.`;
 
     const promptB = `Product: ${product_description}
 ${audienceContext}
+Hypothesis: ${hypothesis || 'Not specified'}
 Generate persuasive ad copy for this product. Focus on emotional appeal and urgency.`;
 
     // Generate variant A (headlines) and variant B (ad_copies) in parallel
@@ -59,22 +76,11 @@ Generate persuasive ad copy for this product. Focus on emotional appeal and urge
 
     const tokensUsed = (responseA.tokensUsed || 0) + (responseB.tokensUsed || 0);
 
-    // Verify campaign_id belongs to user if provided
-    if (campaign_id) {
-      const campaignCheck = await pool.query(
-        `SELECT id FROM campaigns WHERE id = $1 AND user_id = $2`,
-        [campaign_id, userId]
-      );
-      if (campaignCheck.rows.length === 0) {
-        return res.status(404).json({ error: 'Campaign not found or does not belong to you.' });
-      }
-    }
-
     // Save both variants to ab_tests table
     const saved = await pool.query(
-      `INSERT INTO ab_tests (user_id, campaign_id, variant_a, variant_b, hypothesis)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [userId, campaign_id || null, JSON.stringify(variantA), JSON.stringify(variantB), hypothesis || null]
+      `INSERT INTO ab_tests (user_id, campaign_id, variant_a, variant_b, hypothesis,input)
+       VALUES ($1, $2, $3, $4, $5,$6::jsonb) RETURNING *`,
+      [userId, campaign_id || null, JSON.stringify(variantA), JSON.stringify(variantB), hypothesis || null,JSON.stringify(value)]
     );
 
     const abTestId = saved.rows[0].id;
@@ -115,7 +121,7 @@ Generate persuasive ad copy for this product. Focus on emotional appeal and urge
     if (err.message.includes('OPENROUTER_API_KEY')) {
       return res.status(503).json({ error: 'AI service is not configured' });
     }
-    res.status(500).json({ error: 'Failed to run A/B test', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to run A/B test', details: err.message });
   }
 });
 
@@ -134,7 +140,7 @@ router.get('/', async (req, res) => {
     const total = parseInt(countResult.rows[0].count, 10);
 
     const result = await pool.query(
-      `SELECT id, user_id, campaign_id, variant_a, variant_b, winner, hypothesis, primary_metric, created_at
+      `SELECT id, user_id, campaign_id, variant_a, variant_b, winner, hypothesis, primary_metric, is_demo, demo_label, input, created_at
        FROM ab_tests WHERE user_id = $1
        ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
       [userId, limit, offset]
@@ -151,7 +157,7 @@ router.get('/', async (req, res) => {
     });
   } catch (err) {
     console.error('List A/B tests error:', err);
-    res.status(500).json({ error: 'Failed to fetch A/B tests' });
+    res.status(err.status || 500).json({ error: 'Failed to fetch A/B tests' });
   }
 });
 
@@ -174,7 +180,7 @@ router.get('/:id', async (req, res) => {
     res.json({ data: result.rows[0] });
   } catch (err) {
     console.error('Get A/B test error:', err);
-    res.status(500).json({ error: 'Failed to fetch A/B test' });
+    res.status(err.status || 500).json({ error: 'Failed to fetch A/B test' });
   }
 });
 
@@ -184,6 +190,8 @@ router.patch('/:id/winner', async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
 
+    const training=(await pool.query('SELECT is_demo FROM ab_tests WHERE id=$1 AND user_id=$2',[id,req.user.id])).rows[0];
+    if(training?.is_demo)return res.status(409).json({error:'A fictional training draft cannot establish a real experiment winner.'});
     const { error, value } = winnerSchema.validate(req.body);
     if (error) return res.status(400).json({ error: error.details[0].message });
 
@@ -201,7 +209,7 @@ router.patch('/:id/winner', async (req, res) => {
     res.json({ ab_test: result.rows[0] });
   } catch (err) {
     console.error('Set winner error:', err);
-    res.status(500).json({ error: 'Failed to set winner' });
+    res.status(err.status || 500).json({ error: 'Failed to set winner' });
   }
 });
 
@@ -224,7 +232,7 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'A/B test deleted', id: result.rows[0].id });
   } catch (err) {
     console.error('Delete A/B test error:', err);
-    res.status(500).json({ error: 'Failed to delete A/B test' });
+    res.status(err.status || 500).json({ error: 'Failed to delete A/B test' });
   }
 });
 

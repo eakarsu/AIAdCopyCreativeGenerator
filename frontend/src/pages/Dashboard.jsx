@@ -6,6 +6,7 @@ import {
   FiLogOut, FiAward, FiClock, FiBarChart2, FiGlobe, FiBriefcase, FiShield, FiStar,
   FiZap, FiActivity,
 } from 'react-icons/fi';
+import {nativeLoadError} from '../components/NativeListState';
 import { featuresAPI, aiAPI } from '../services/api';
 
 const FEATURES = [
@@ -27,10 +28,15 @@ const FEATURES = [
 ];
 
 const ADVANCED_TOOLS = [
-  { path: '/custom-views', title: 'Campaign Analytics', description: 'A/B test funnel & creative variant gallery', icon: FiBarChart2, color: '#ec4899' },
+  {path:'/creative-review',title:'Creative Governance Review',description:'Receipted native advisory review with separate runtime sign-in',icon:FiShield,color:'#6366f1'},
+  {path:'/codex/operations',title:'Operations Planning',description:'Saved planning drafts and real record controls',icon:FiClipboard,color:'#14b8a6'},
+  {path:'/persona-generator',title:'Audience Personas',description:'Fictional planning personas with full examples',icon:FiUsers,color:'#8b5cf6'},
+  {path:'/ad-compliance',title:'Advertising Policy Review',description:'Native advisory review with manual publication gates',icon:FiShield,color:'#eab308'},
+  {path:'/integrations',title:'Integrations',description:'Native research, estimates and honest external delivery gates',icon:FiGlobe,color:'#06b6d4'},
+  { path: '/custom-views', title: 'Campaign Analytics', description: 'Saved native draft library and honest measurement readiness', icon: FiBarChart2, color: '#ec4899' },
   { path: '/ab-tests', title: 'A/B Testing Framework', description: 'Generate variant pairs, track winners', icon: FiAward, color: '#ec4899' },
   { path: '/brand-voice-check', title: 'Brand Voice Checker', description: 'Score copy against brand guidelines', icon: FiMic, color: '#eab308' },
-  { path: '/benchmark', title: 'Performance Benchmarking', description: 'Compare copy vs industry benchmarks', icon: FiBarChart2, color: '#06b6d4' },
+  { path: '/benchmark', title: 'Performance Benchmarking', description: 'Review model assumptions; actual benchmarks remain separate', icon: FiBarChart2, color: '#06b6d4' },
   { path: '/translator', title: 'Multi-Language Translator', description: 'Adapt campaigns to 12+ languages', icon: FiGlobe, color: '#3b82f6' },
   { path: '/competitor-sentiment', title: 'Competitor Sentiment', description: 'Analyze positioning & differentiation', icon: FiSearch, color: '#ec4899' },
   { path: '/audience-sentiment', title: 'Audience Sentiment Predictor', description: 'Will this copy resonate with the target audience?', icon: FiUsers, color: '#8b5cf6' },
@@ -49,20 +55,12 @@ export default function Dashboard() {
   const [stats, setStats] = useState({ total: 0, byFeature: {}, generated_today: 0, total_favorites: 0 });
   const [usage, setUsage] = useState(null);
 
+  const [loadError,setLoadError]=useState(''),[loading,setLoading]=useState(true),[revision,setRevision]=useState(0);
   useEffect(() => {
-    featuresAPI.stats()
-      .then(({ data }) => setStats({
-        total: data.total || 0,
-        byFeature: data.stats || {},
-        generated_today: data.generated_today || 0,
-        total_favorites: data.total_favorites || 0,
-      }))
-      .catch(() => {});
+    const controller=new AbortController();setLoading(true);setLoadError('');
+    Promise.all([featuresAPI.stats({signal:controller.signal}),aiAPI.usage({signal:controller.signal})]).then(([summary,usage])=>{const data=summary.data;if(!Number.isFinite(data.total)||!data.stats||!Number.isFinite(usage.data?.tokens_used))throw Error('The dashboard returned invalid saved data.');if(!controller.signal.aborted){setStats({total:data.total,byFeature:data.stats,generated_today:data.generated_today,total_favorites:data.total_favorites});setUsage(usage.data);}}).catch(error=>{if(!controller.signal.aborted)setLoadError(nativeLoadError(error));}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();
+  },[revision]);
 
-    aiAPI.usage()
-      .then(({ data }) => setUsage(data))
-      .catch(() => {});
-  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -87,24 +85,25 @@ export default function Dashboard() {
       </header>
 
       <main className="dashboard-main">
+        {loading&&<p role="status">Loading saved workspace…</p>}{loadError&&<div role="alert" className="native-load-error">{loadError}<button type="button" className="btn btn-outline" onClick={()=>setRevision(value=>value+1)}>Retry dashboard</button></div>}
         <div className="dashboard-stats">
           <div className="stat-card">
-            <h3>{stats.total}</h3>
-            <p>Total Generations</p>
+            <h3>{loading||loadError?'—':stats.total}</h3>
+            <p>Saved copy drafts</p>
           </div>
           <div className="stat-card">
-            <h3>{stats.generated_today}</h3>
-            <p>Generated Today</p>
+            <h3>{loading||loadError?'—':stats.generated_today}</h3>
+            <p>Provider generations today</p>
           </div>
           <div className="stat-card">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              {stats.total_favorites}
+              {loading||loadError?'—':stats.total_favorites}
               <FiStar size={16} style={{ color: '#eab308' }} />
             </h3>
             <p>Favorites</p>
           </div>
           <div className="stat-card" style={{ cursor: 'pointer' }} onClick={() => navigate('/usage')}>
-            <h3>{usage ? `${usage.usage_percent}%` : '—'}</h3>
+            <h3>{usage&&!loading&&!loadError ? `${usage.usage_percent}%` : '—'}</h3>
             <p>Monthly Usage {usage?.alert && <span style={{ color: '#ef4444', fontSize: 11 }}>(limit near!)</span>}</p>
           </div>
         </div>

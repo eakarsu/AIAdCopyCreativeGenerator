@@ -34,9 +34,9 @@ export const featuresAPI = {
   // Generated content history (all stored in generated_content table)
   history: (params = {}) => api.get('/features', { params }),
   historyItem: (id) => api.get(`/features/${id}`),
-  deleteHistory: (id) => api.delete(`/features/${id}`),
+  deleteHistory: (id, options = {}) => api.delete(`/features/${id}`, options),
   toggleFavorite: (id) => api.patch(`/features/${id}/favorite`),
-  stats: () => api.get('/features/stats'),
+  stats: (options={}) => api.get('/features/stats',options),
 };
 
 export const aiAPI = {
@@ -52,7 +52,7 @@ export const aiAPI = {
     api.post('/ai/compliance-check', { copy_text, platform }),
   createShare: (generated_content_id, ttl_hours = 24) =>
     api.post('/ai/share', { generated_content_id, ttl_hours }),
-  usage: () => api.get('/ai/usage'),
+  usage: (options={}) => api.get('/ai/usage',options),
 
   // Client-side AI helpers wrapping /ai/generate with structured prompts
   benchmark: (industry, copy_text, metric_focus) =>
@@ -102,7 +102,7 @@ export const abTestAPI = {
   get: (id) => api.get(`/ab-tests/${id}`),
   create: (data) => api.post('/ab-tests', data),
   setWinner: (id, winner) => api.patch(`/ab-tests/${id}/winner`, { winner }),
-  delete: (id) => api.delete(`/ab-tests/${id}`),
+  delete: (id, options = {}) => api.delete(`/ab-tests/${id}`, options),
 };
 
 export const campaignAPI = {
@@ -110,7 +110,7 @@ export const campaignAPI = {
   get: (id) => api.get(`/campaigns/${id}`),
   create: (data) => api.post('/campaigns', data),
   update: (id, data) => api.put(`/campaigns/${id}`, data),
-  delete: (id) => api.delete(`/campaigns/${id}`),
+  delete: (id, options = {}) => api.delete(`/campaigns/${id}`, options),
 };
 
 export const brandProfileAPI = {
@@ -118,11 +118,11 @@ export const brandProfileAPI = {
   create: (data) => api.post('/brand-profiles', data),
   update: (id, data) => api.put(`/brand-profiles/${id}`, data),
   activate: (id) => api.patch(`/brand-profiles/${id}/activate`),
-  delete: (id) => api.delete(`/brand-profiles/${id}`),
+  delete: (id, options = {}) => api.delete(`/brand-profiles/${id}`, options),
 };
 
 export const shareAPI = {
-  view: (token) => api.get(`/share/${token}`),
+  view: (token,options={}) => api.get(`/share/${token}`,options),
 };
 
 export default api;

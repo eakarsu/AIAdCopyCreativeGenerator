@@ -9,13 +9,16 @@ export default function SharePage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [revision,setRevision]=useState(0);
 
   useEffect(() => {
-    shareAPI.view(token)
-      .then(({ data }) => setData(data))
-      .catch(err => setError(err.response?.data?.error || 'Share link not found or has expired'))
-      .finally(() => setLoading(false));
-  }, [token]);
+    const controller=new AbortController();setLoading(true);setError(null);
+    shareAPI.view(token,{signal:controller.signal})
+      .then(({ data }) => {if(!data?.content||typeof data.content.feature_type!=='string'||data.content.result===undefined||!Number.isFinite(Date.parse(data.expires_at)))throw Error('The saved share response was invalid.');if(!controller.signal.aborted)setData(data);})
+      .catch(err => {if(!controller.signal.aborted)setError(err.response?.data?.error || err.message || 'Share link not found or has expired');})
+      .finally(() => {if(!controller.signal.aborted)setLoading(false);});
+    return()=>controller.abort();
+  }, [token,revision]);
 
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -26,7 +29,7 @@ export default function SharePage() {
   if (error) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
       <FiShare2 size={48} style={{ opacity: 0.3 }} />
-      <h2>Share Link Unavailable</h2>
+      <h2>Share Link Unavailable</h2><button type="button" className="btn btn-outline" onClick={()=>setRevision(value=>value+1)}>Retry shared draft</button>
       <p style={{ color: 'var(--text-muted, #888)' }}>{error}</p>
     </div>
   );
@@ -54,10 +57,10 @@ export default function SharePage() {
         </div>
       )}
 
-      <AIOutput data={data.content.result} />
+      <AIOutput data={data.content.result} isDemo={data.content.is_demo} />
 
       <div style={{ marginTop: 48, textAlign: 'center', color: 'var(--text-muted, #888)', fontSize: 13 }}>
-        Generated with AI Ad Copy & Creative Generator
+        {data.content.is_demo?data.content.demo_label:'Saved copy shared from AI Ad Copy & Creative Generator'}
       </div>
     </div>
   );

@@ -57,7 +57,7 @@ router.post('/register', async (req, res) => {
 
     res.status(201).json({
       token,
-      user: { id: user.id, email: user.email, name: user.name, created_at: user.created_at },
+      user: { id: user.id, email: user.email, name: user.name, role:user.role, created_at: user.created_at },
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -88,7 +88,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       token,
-      user: { id: user.id, email: user.email, name: user.name, created_at: user.created_at },
+      user: { id: user.id, email: user.email, name: user.name, role:user.role, created_at: user.created_at },
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -100,7 +100,7 @@ router.post('/login', async (req, res) => {
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, name, created_at FROM users WHERE id = $1',
+      'SELECT id, email, name, role, created_at FROM users WHERE id = $1',
       [req.user.id]
     );
 

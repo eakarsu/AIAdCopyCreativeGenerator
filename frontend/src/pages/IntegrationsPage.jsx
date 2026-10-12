@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiArrowLeft, FiActivity, FiUploadCloud, FiBarChart2, FiSearch } from 'react-icons/fi';
 import { aiAPI } from '../services/api';
 import AIOutput from '../components/AIOutput';
+import NativeAIForm,{TOOLS} from '../components/NativeAIForm';
 import toast from 'react-hot-toast';
 
 // Apply pass 5: surfaces creds-gated integrations (Meta Ad Library, competitor monitor,
@@ -32,7 +33,7 @@ export default function IntegrationsPage() {
 
       {tab === 'library' && <AdLibraryPanel />}
       {tab === 'monitor' && <MonitorPanel />}
-      {tab === 'benchmark' && <BenchmarkPanel />}
+      {tab === 'benchmark' && <NativeAIForm tool={TOOLS['industry-benchmark']}/>}
       {tab === 'upload' && <UploadPanel />}
     </div>
   );
@@ -118,7 +119,7 @@ function BenchmarkPanel() {
   };
   return (
     <div className="card">
-      <p style={{ opacity: 0.7, fontSize: 13 }}>Uses AI estimate by default. Set INDUSTRY_BENCHMARK_API_KEY to blend external data.</p>
+      <p style={{ opacity: 0.7, fontSize: 13 }}>Uses an unverified AI estimate. The external benchmark client is unavailable.</p>
       <input className="input" placeholder="Industry" value={industry} onChange={(e) => setIndustry(e.target.value)} />
       <textarea className="input" rows={4} placeholder="Copy to benchmark" value={copy} onChange={(e) => setCopy(e.target.value)} />
       <input className="input" placeholder="Metric focus (optional)" value={metric} onChange={(e) => setMetric(e.target.value)} />

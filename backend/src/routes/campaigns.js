@@ -1,17 +1,20 @@
 const express = require('express');
 const Joi = require('joi');
-const pool = require('../db');
+const nativeRequest = require('../services/nativeRequest');
+const pool = nativeRequest.requestPool(require('../db'));
 const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
 
 router.use(authMiddleware);
+nativeRequest.installNativeRequest(router);
+router.use((req,res,next)=>{nativeRequest.beforeCommit(async client=>{if(!(await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[req.user.id])).rows.length)throw Object.assign(new Error('The saved account is no longer available.'),{status:401});});next();});
 
 const campaignSchema = Joi.object({
   name: Joi.string().min(1).max(255).required(),
   description: Joi.string().max(2000).optional().allow(''),
   status: Joi.string().valid('draft', 'active', 'paused', 'completed', 'archived').default('draft'),
-  objective: Joi.string().max(500).optional().allow(''),
+  objective: Joi.string().max(255).optional().allow(''),
   budget: Joi.string().max(100).optional().allow(''),
   start_date: Joi.date().iso().optional().allow(null),
   end_date: Joi.date().iso().optional().allow(null),
@@ -48,7 +51,7 @@ router.get('/', async (req, res) => {
     const dataParams = [...params, limit, offset];
     const result = await pool.query(
       `SELECT c.id, c.name, c.description, c.status, c.objective, c.budget,
-              c.start_date, c.end_date, c.created_at, c.updated_at,
+              c.start_date, c.end_date, c.is_demo, c.demo_label, c.created_at, c.updated_at,
               COUNT(gc.id) as content_count
        FROM campaigns c
        LEFT JOIN generated_content gc ON gc.campaign_id = c.id
@@ -65,7 +68,7 @@ router.get('/', async (req, res) => {
     });
   } catch (err) {
     console.error('List campaigns error:', err);
-    res.status(500).json({ error: 'Failed to fetch campaigns' });
+    res.status(err.status || 500).json({ error: 'Failed to fetch campaigns' });
   }
 });
 
@@ -82,10 +85,10 @@ router.get('/:id', async (req, res) => {
         [id, userId]
       ),
       pool.query(
-        `SELECT id, feature_type, prompt, result, tokens_used, created_at
-         FROM generated_content WHERE campaign_id = $1
+        `SELECT id, feature_type, prompt, result, tokens_used, is_demo, demo_label, input, model, provider_receipt, campaign_id, created_at
+         FROM generated_content WHERE campaign_id = $1 AND user_id = $2
          ORDER BY created_at DESC LIMIT 50`,
-        [id]
+        [id, userId]
       ),
       pool.query(
         `SELECT id, variant_a, variant_b, winner, hypothesis, created_at
@@ -108,7 +111,7 @@ router.get('/:id', async (req, res) => {
     });
   } catch (err) {
     console.error('Get campaign error:', err);
-    res.status(500).json({ error: 'Failed to fetch campaign' });
+    res.status(err.status || 500).json({ error: 'Failed to fetch campaign' });
   }
 });
 
@@ -130,7 +133,7 @@ router.post('/', async (req, res) => {
     res.status(201).json({ data: result.rows[0] });
   } catch (err) {
     console.error('Create campaign error:', err);
-    res.status(500).json({ error: 'Failed to create campaign' });
+    res.status(err.status || 500).json({ error: 'Failed to create campaign' });
   }
 });
 
@@ -179,7 +182,7 @@ router.put('/:id', async (req, res) => {
     res.json({ data: result.rows[0] });
   } catch (err) {
     console.error('Update campaign error:', err);
-    res.status(500).json({ error: 'Failed to update campaign' });
+    res.status(err.status || 500).json({ error: 'Failed to update campaign' });
   }
 });
 
@@ -202,7 +205,7 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'Campaign deleted', id: result.rows[0].id });
   } catch (err) {
     console.error('Delete campaign error:', err);
-    res.status(500).json({ error: 'Failed to delete campaign' });
+    res.status(err.status || 500).json({ error: 'Failed to delete campaign' });
   }
 });
 

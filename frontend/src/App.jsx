@@ -1,3 +1,5 @@
+import NativeCreativeReview from './components/NativeCreativeReview';
+import AIReportLibrary from "./components/AIReportLibrary";
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Login from './pages/Login';
@@ -33,12 +35,13 @@ function PrivateRoute({ children }) {
 
 export default function App() {
   return (
-    <>
+    <><AIReportLibrary floating /><>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <Routes>
-        <Route path="/codex/custom-viz" element={<CodexCustomVizFeature />} />
-        <Route path="/codex/operations" element={<CodexOperationsFeature />} />
+        <Route path="/codex/custom-viz" element={<PrivateRoute><CodexCustomVizFeature /></PrivateRoute>} />
+        <Route path="/codex/operations" element={<PrivateRoute><CodexOperationsFeature /></PrivateRoute>} />
 
+        <Route path="/creative-review" element={<PrivateRoute><NativeCreativeReview /></PrivateRoute>} />
         <Route path="/login" element={<Login />} />
         <Route path="/share/:token" element={<SharePage />} />
         <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
@@ -63,6 +66,6 @@ export default function App() {
         <Route path="/ad-compliance" element={<PrivateRoute><AdComplianceMatrixPage /></PrivateRoute>} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
-    </>
+    </></>
   );
 }

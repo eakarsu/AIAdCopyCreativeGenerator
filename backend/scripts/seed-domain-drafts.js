@@ -1,0 +1,27 @@
+'use strict';
+const FEATURES=['ad_copies','headlines','ab_tests','creative_briefs','target_audiences','brand_voices','cta_texts','image_prompts','social_media_ads','email_copies','landing_page_copies','campaign_strategies','competitor_analyses','budget_optimizations','performance_predictions'];
+const LABEL='Fictional training draft · manually authored · no provider execution, measured result or approval';
+async function seedDomainDrafts(pool,userId,{minimum=15}={}) {
+  if(process.env.NODE_ENV==='production')throw new Error('Fictional training data is unavailable in production.');
+  if(!Number.isSafeInteger(Number(userId))||Number(userId)<1||!Number.isSafeInteger(minimum)||minimum<15||minimum>100)throw new Error('An existing native actor and minimum of15–100 are required.');
+  const client=await pool.connect(),counts={};
+  try{
+    await client.query('BEGIN');
+    if(!(await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[userId])).rows.length)throw new Error('Existing native actor required; no identities are seeded.');
+    const ensure=async(table,where,args,insert)=>{const n=Number((await client.query('SELECT COUNT(*)::int AS n FROM '+table+' WHERE user_id=$1'+where,[userId,...args])).rows[0].n);for(let i=n;i<minimum;i++)await insert(i+1);counts[table+(args[0]?':'+args[0]:'')]=Number((await client.query('SELECT COUNT(*)::int AS n FROM '+table+' WHERE user_id=$1'+where,[userId,...args])).rows[0].n);};
+    await ensure('campaigns','',[],i=>client.query("INSERT INTO campaigns(user_id,name,description,status,objective,budget,is_demo,demo_label) VALUES($1,$2,$3,'draft',$4,$5,TRUE,$6)",[userId,'Fictional training campaign '+i,'Illustrative copy planning only; no real advertising spend or delivery.','Practice a clear, reviewable campaign message','Illustrative planning estimate only; no committed spend',LABEL]));
+    await ensure('brand_profiles','',[],i=>client.query("INSERT INTO brand_profiles(user_id,name,industry,tone_of_voice,target_persona,competitor_names,brand_guidelines,is_active,is_demo,demo_label) VALUES($1,$2,'Fictional consumer products','Friendly and specific','Illustrative planning audience','Fictional Example A; Fictional Example B','Avoid unsupported claims. Human review and real evidence are required.',FALSE,TRUE,$3)",[userId,'Fictional practice brand '+i,LABEL]));
+    const campaigns=(await client.query('SELECT id FROM campaigns WHERE user_id=$1 ORDER BY is_demo DESC,id',[userId])).rows;
+    for(const feature of FEATURES)await ensure('generated_content',' AND feature_type=$2',[feature],i=>{
+      const input={feature,prompt:'Manually authored fictional '+feature.replaceAll('_',' ')+' practice draft '+i,context:'Illustrative training content only. No provider was called and no performance, consent, rights or approvals are asserted.',campaign_id:campaigns[(i-1)%campaigns.length].id};
+      const result={headline:'Fictional draft '+i+' · '+feature.replaceAll('_',' '),body:'Explore an illustrative planning example. Review source facts and required approvals before any real use.',call_to_action:'Review the draft details',review_status:'Unreviewed fictional training draft',provenance:LABEL};
+      return client.query('INSERT INTO generated_content(user_id,feature_type,prompt,result,tokens_used,campaign_id,input,is_demo,demo_label) VALUES($1,$2,$3,$4::jsonb,NULL,$5,$6::jsonb,TRUE,$7)',[userId,feature,input.prompt,JSON.stringify(result),input.campaign_id,JSON.stringify(input),LABEL]);
+    });
+    await ensure('ab_tests','',[],i=>client.query('INSERT INTO ab_tests(user_id,campaign_id,variant_a,variant_b,hypothesis,winner,input,is_demo,demo_label) VALUES($1,$2,$3::jsonb,$4::jsonb,$5,NULL,$6::jsonb,TRUE,$7)',[userId,campaigns[(i-1)%campaigns.length].id,JSON.stringify({headline:'Fictional manually authored option A '+i,body:'Illustrative message emphasizing clarity.'}),JSON.stringify({headline:'Fictional manually authored option B '+i,body:'Illustrative message emphasizing next steps.'}),'Illustrative wording hypothesis only; no experiment or measured winner.',JSON.stringify({product_description:'Fictional starter kit '+i+' for a training exercise',target_audience:'Illustrative beginner audience',hypothesis:'Clearer wording may be easier to understand; requires a genuine measured test.',campaign_id:campaigns[(i-1)%campaigns.length].id}),LABEL]));
+    await ensure('operational_drafts','',[],i=>client.query("INSERT INTO operational_drafts(user_id,task,owner,priority,status,is_demo,demo_label) VALUES($1,$2,'Fictional planning team','medium','draft',TRUE,$3)",[userId,'Fictional planning follow-up '+i+': review draft wording before real use',LABEL]));
+    await client.query('COMMIT');return {userId,counts,label:LABEL,providerCalls:0};
+  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+}
+module.exports={FEATURES,LABEL,seedDomainDrafts};
+
+if(require.main===module){const pool=require('../src/db'),{credentials}=require('../src/services/runtimeProvisioning');(async()=>{try{const pair=credentials(process.env),user=(await pool.query('SELECT id,password FROM users WHERE lower(email)=$1',[pair.email])).rows[0];if(!user||!await require('bcryptjs').compare(pair.password,user.password))throw Error('Configured credentials must match an existing saved account; no accounts are created or reset.');console.log(JSON.stringify(await seedDomainDrafts(pool,user.id)));}finally{await pool.end();}})().catch(error=>{console.error(error.message);process.exitCode=1;});}

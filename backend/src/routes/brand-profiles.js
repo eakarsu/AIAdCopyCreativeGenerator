@@ -1,11 +1,14 @@
 const express = require('express');
 const Joi = require('joi');
-const pool = require('../db');
+const nativeRequest = require('../services/nativeRequest');
+const pool = nativeRequest.requestPool(require('../db'));
 const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
 
 router.use(authMiddleware);
+nativeRequest.installNativeRequest(router);
+router.use((req,res,next)=>{nativeRequest.beforeCommit(async client=>{if(!(await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[req.user.id])).rows.length)throw Object.assign(new Error('The saved account is no longer available.'),{status:401});});next();});
 
 const profileSchema = Joi.object({
   name: Joi.string().min(1).max(255).required(),
@@ -28,7 +31,7 @@ router.get('/', async (req, res) => {
     res.json({ data: result.rows });
   } catch (err) {
     console.error('List brand profiles error:', err);
-    res.status(500).json({ error: 'Failed to fetch brand profiles' });
+    res.status(err.status || 500).json({ error: 'Failed to fetch brand profiles' });
   }
 });
 
@@ -55,7 +58,7 @@ router.post('/', async (req, res) => {
     res.status(201).json({ data: result.rows[0] });
   } catch (err) {
     console.error('Create brand profile error:', err);
-    res.status(500).json({ error: 'Failed to create brand profile' });
+    res.status(err.status || 500).json({ error: 'Failed to create brand profile' });
   }
 });
 
@@ -99,7 +102,7 @@ router.put('/:id', async (req, res) => {
     res.json({ data: result.rows[0] });
   } catch (err) {
     console.error('Update brand profile error:', err);
-    res.status(500).json({ error: 'Failed to update brand profile' });
+    res.status(err.status || 500).json({ error: 'Failed to update brand profile' });
   }
 });
 
@@ -124,7 +127,7 @@ router.patch('/:id/activate', async (req, res) => {
     res.json({ data: result.rows[0] });
   } catch (err) {
     console.error('Activate brand profile error:', err);
-    res.status(500).json({ error: 'Failed to activate brand profile' });
+    res.status(err.status || 500).json({ error: 'Failed to activate brand profile' });
   }
 });
 
@@ -147,7 +150,7 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'Brand profile deleted', id: result.rows[0].id });
   } catch (err) {
     console.error('Delete brand profile error:', err);
-    res.status(500).json({ error: 'Failed to delete brand profile' });
+    res.status(err.status || 500).json({ error: 'Failed to delete brand profile' });
   }
 });
 

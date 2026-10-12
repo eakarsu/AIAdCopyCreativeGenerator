@@ -1,125 +1,13 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { FiArrowLeft, FiBriefcase, FiX } from 'react-icons/fi';
-import { campaignAPI } from '../services/api';
-import AIOutput from '../components/AIOutput';
-import toast from 'react-hot-toast';
-
-export default function CampaignDetailPage() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const [campaign, setCampaign] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedContent, setSelectedContent] = useState(null);
-
-  useEffect(() => {
-    campaignAPI.get(id)
-      .then(({ data }) => setCampaign(data.data))
-      .catch(() => { toast.error('Failed to load campaign'); navigate('/campaigns'); })
-      .finally(() => setLoading(false));
-  }, [id]);
-
-  if (loading) return <div className="page-container"><p>Loading...</p></div>;
-  if (!campaign) return null;
-
-  return (
-    <div className="page-container">
-      <header className="page-header">
-        <button className="btn btn-ghost" onClick={() => navigate('/campaigns')}><FiArrowLeft /> Campaigns</button>
-        <div className="page-title">
-          <div className="feature-icon-sm" style={{ background: '#6366f1' }}><FiBriefcase size={18} color="#fff" /></div>
-          <div>
-            <h1>{campaign.name}</h1>
-            <p style={{ fontSize: 13, color: 'var(--text-muted, #888)', margin: 0 }}>
-              {campaign.status} {campaign.budget ? `· ${campaign.budget}` : ''} {campaign.objective ? `· ${campaign.objective}` : ''}
-            </p>
-          </div>
-        </div>
-      </header>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 24 }}>
-        <div>
-          <h2 style={{ marginBottom: 12 }}>Generated Content ({campaign.content?.length || 0} items)</h2>
-          {(!campaign.content || campaign.content.length === 0) ? (
-            <p style={{ color: 'var(--text-muted, #888)' }}>No content yet. Generate content and link it to this campaign.</p>
-          ) : (
-            <div className="items-table">
-              <table>
-                <thead><tr><th>Feature</th><th>Prompt</th><th>Date</th></tr></thead>
-                <tbody>
-                  {campaign.content.map(item => (
-                    <tr key={item.id} onClick={() => setSelectedContent(item)} className="clickable-row">
-                      <td><span className="badge">{item.feature_type}</span></td>
-                      <td style={{ maxWidth: 300, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{item.prompt}</td>
-                      <td className="td-date">{new Date(item.created_at).toLocaleDateString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {campaign.ab_tests && campaign.ab_tests.length > 0 && (
-            <>
-              <h2 style={{ marginTop: 24, marginBottom: 12 }}>A/B Tests ({campaign.ab_tests.length})</h2>
-              <div className="items-table">
-                <table>
-                  <thead><tr><th>Test ID</th><th>Hypothesis</th><th>Winner</th><th>Date</th></tr></thead>
-                  <tbody>
-                    {campaign.ab_tests.map(test => (
-                      <tr key={test.id} className="clickable-row" onClick={() => navigate('/ab-tests')}>
-                        <td>#{test.id}</td>
-                        <td style={{ maxWidth: 300, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{test.hypothesis || '—'}</td>
-                        <td>{test.winner ? <span className="badge" style={{ background: '#22c55e', color: '#fff' }}>Variant {test.winner.toUpperCase()}</span> : '—'}</td>
-                        <td className="td-date">{new Date(test.created_at).toLocaleDateString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div>
-          <div style={{ background: 'var(--card-bg, #f9fafb)', borderRadius: 12, padding: 20, border: '1px solid var(--border, #e5e7eb)' }}>
-            <h3>Campaign Info</h3>
-            <dl style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-              {[
-                ['Status', campaign.status],
-                ['Objective', campaign.objective || '—'],
-                ['Budget', campaign.budget || '—'],
-                ['Start', campaign.start_date ? new Date(campaign.start_date).toLocaleDateString() : '—'],
-                ['End', campaign.end_date ? new Date(campaign.end_date).toLocaleDateString() : '—'],
-                ['Created', new Date(campaign.created_at).toLocaleDateString()],
-              ].map(([k, v]) => (
-                <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <dt style={{ color: 'var(--text-muted, #888)', fontSize: 13 }}>{k}</dt>
-                  <dd style={{ fontWeight: 500, fontSize: 13 }}>{v}</dd>
-                </div>
-              ))}
-            </dl>
-            {campaign.description && (
-              <div style={{ marginTop: 16, fontSize: 13, color: 'var(--text-muted, #888)' }}>{campaign.description}</div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {selectedContent && (
-        <div className="modal-overlay" onClick={() => setSelectedContent(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
-            <div className="modal-header">
-              <h2>{selectedContent.feature_type} — #{selectedContent.id}</h2>
-              <button className="btn-icon" onClick={() => setSelectedContent(null)}><FiX /></button>
-            </div>
-            <div className="modal-body">
-              <p style={{ marginBottom: 12, color: 'var(--text-muted, #888)', fontSize: 13 }}>{selectedContent.prompt}</p>
-              <AIOutput data={selectedContent.result} />
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+import {useEffect,useState} from 'react';
+import {useParams,useNavigate} from 'react-router-dom';
+import api from '../services/api';
+import NativeListState,{nativeLoadError} from '../components/NativeListState';
+import NativeRecordDialog from '../components/NativeRecordDialog';
+import NativeAIForm,{generationTool,TOOLS} from '../components/NativeAIForm';
+import {reportText} from '../components/AIReport';
+export default function CampaignDetailPage(){
+ const{id}=useParams(),navigate=useNavigate(),[data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[revision,setRevision]=useState(0),[selected,setSelected]=useState(null),[edit,setEdit]=useState(null);
+ useEffect(()=>{const controller=new AbortController();setError('');setLoading(true);api.get('/campaigns/'+id,{signal:controller.signal}).then(({data})=>{if(!data.data?.id||!Array.isArray(data.data.content)||!Array.isArray(data.data.ab_tests))throw Error('Saved campaign detail was invalid.');if(!controller.signal.aborted)setData(data.data);}).catch(error=>{if(!controller.signal.aborted)setError(nativeLoadError(error));}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();},[id,revision]);
+ function startEdit(item){setEdit({id:item.id,feature:item.feature_type,input:{...(item.input||{}),prompt:item.input?.prompt||item.prompt||'',context:typeof item.input?.context==='object'?JSON.stringify(item.input.context):item.input?.context||'Review this saved draft. Preserve actual evidence, rights and publication gates.',campaign_id:String(item.campaign_id||data.id)}});setSelected(null);}
+ return <main className="page-container"><button type="button" className="btn btn-ghost" onClick={()=>navigate('/campaigns')}>Campaigns</button><h1>{data?.name||'Saved campaign'}</h1><NativeListState loading={loading} error={error} onRetry={()=>setRevision(value=>value+1)}/>{data&&!error&&!loading&&<>{data.is_demo&&<p className="native-demo-label">{data.demo_label}</p>}<p>{data.description}</p>{edit&&<section aria-label="Edit saved campaign copy"><h2>Edit saved input</h2><p className="ai-muted">The complete saved input is loaded for a new draft. Generation remains explicit and does not overwrite the saved provider output or grant publication approval.</p><button type="button" className="btn btn-outline" onClick={()=>setEdit(null)}>Cancel editing</button><NativeAIForm key={edit.id} tool={edit.feature==='brand_voice_check'?TOOLS['brand-voice']:generationTool(edit.feature)} initialInput={edit.input} onResult={()=>setRevision(value=>value+1)}/></section>}<h2>Saved campaign copy</h2><table><thead><tr><th>Feature</th><th>Draft</th><th>Provenance</th></tr></thead><tbody>{data.content.map(item=><tr key={item.id} className="clickable-row" onClick={()=>setSelected(item)}><td>{item.feature_type}</td><td>{reportText(item.result).slice(0,200)}</td><td>{item.is_demo?item.demo_label:'Saved native draft'}</td></tr>)}</tbody></table>{!data.content.length&&<p>No saved copy attached.</p>}<button type="button" className="btn btn-outline" onClick={()=>navigate('/ab-tests')}>Open saved A/B draft experiments</button></>}{selected&&<NativeRecordDialog item={selected} title="Saved campaign copy" onClose={()=>setSelected(null)} onEdit={startEdit} onDelete={async(item,options)=>{await api.delete('/features/'+item.id,options);setRevision(value=>value+1);}}/>}</main>;
 }

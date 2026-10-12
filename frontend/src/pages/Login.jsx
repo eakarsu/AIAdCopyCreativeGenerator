@@ -1,102 +1,12 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { authAPI } from '../services/api';
-import toast from 'react-hot-toast';
-
-function __demoAutofill() {
-  (async () => {
-    let email = "";
-    let password = "";
-    try {
-      const response = await fetch("/api/auth/demo-credentials", { cache: "no-store" });
-      if (response.ok) {
-        const data = await response.json();
-        email = data.email || data.username || "";
-        password = data.password || "";
-      }
-    } catch (error) {
-      /* fall back to build-time credentials below */
-    }
-    if (!email || !password) {
-      const env = (typeof process !== "undefined" && process.env) ? process.env : {};
-      email = email || env.REACT_APP_DEMO_EMAIL || env.VITE_DEMO_EMAIL || "";
-      password = password || env.REACT_APP_DEMO_PASSWORD || env.VITE_DEMO_PASSWORD || "";
-    }
-    const form = document.querySelector("form");
-    const setValue = (element, value) => {
-      if (!element) return;
-      const prototype = element.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(prototype, "value").set;
-      setter.call(element, value);
-      element.dispatchEvent(new Event("input", { bubbles: true }));
-    };
-    const scope = form || document;
-    setValue(scope.querySelector('input[type="email"], input[name="email"], input[name="username"]') || scope.querySelectorAll("input")[0], email);
-    setValue(scope.querySelector('input[type="password"], input[name="password"]') || scope.querySelectorAll("input")[1], password);
-    window.setTimeout(() => {
-      if (form && typeof form.requestSubmit === "function") {
-        form.requestSubmit();
-      } else {
-        const submit = scope.querySelector('button[type="submit"], input[type="submit"]');
-        if (submit) submit.click();
-      }
-    }, 50);
-  })();
-}
-
-export default function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const { data } = await authAPI.login(email, password);
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      toast.success('Welcome back!');
-      navigate('/');
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="login-page">
-      <div className="login-container">
-        <div className="login-header">
-          <div className="login-logo">AI</div>
-          <h1>Ad Copy & Creative Generator</h1>
-          <p>AI-powered advertising content creation platform</p>
-        </div>
-        <form onSubmit={handleLogin} className="login-form">
-          <div className="form-group">
-            <label>Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Enter your email" required />
-          </div>
-          <div className="form-group">
-            <label>Password</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter your password" required />
-          </div>
-          <button
-            type="button"
-            onClick={__demoAutofill}
-            aria-label="Auto Fill Demo Credentials"
-            style={{ width: '100%', marginBottom: '12px', padding: '10px 14px', borderRadius: '8px', border: '1px solid currentColor', background: 'transparent', cursor: 'pointer' }}
-          >
-            Auto Fill Demo Credentials
-          </button>
-          <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-        <p className="login-footer">Powered by OpenRouter AI</p>
-      </div>
-    </div>
-  );
+import {useEffect,useRef,useState} from 'react';
+import {useNavigate} from 'react-router-dom';
+import {authAPI} from '../services/api';
+import {nativeLoadError} from '../components/NativeListState';
+export default function Login(){
+ const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[loading,setLoading]=useState(false),[error,setError]=useState(''),busy=useRef(false),mounted=useRef(true),navigate=useNavigate();
+ const demo=import.meta.env.DEV&&import.meta.env.VITE_ENABLE_DEMO_CREDENTIAL_AUTOFILL==='true'&&Boolean(import.meta.env.VITE_DEMO_EMAIL&&import.meta.env.VITE_DEMO_PASSWORD);
+ useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+ const fill=()=>{if(!demo)return null;const pair={email:import.meta.env.VITE_DEMO_EMAIL,password:import.meta.env.VITE_DEMO_PASSWORD};setEmail(pair.email);setPassword(pair.password);setError('');return pair;};
+ const login=async pair=>{if(busy.current)return;busy.current=true;setLoading(true);setError('');try{const {data}=await authAPI.login(pair.email,pair.password);if(typeof data?.token!=='string'||!data.token||!Number.isSafeInteger(Number(data.user?.id))||Number(data.user.id)<1)throw Error('The sign-in response was invalid.');if(!mounted.current)return;localStorage.setItem('token',data.token);localStorage.setItem('user',JSON.stringify(data.user));navigate('/');}catch(error){if(mounted.current)setError(error.response?.data?.error||nativeLoadError(error));}finally{busy.current=false;if(mounted.current)setLoading(false);}};
+ return <main className="login-page"><section className="login-container"><header className="login-header"><div className="login-logo">AI</div><h1>Ad Copy & Creative Generator</h1><p>Sign in to your saved workspace</p></header><form className="login-form" onSubmit={event=>{event.preventDefault();login({email,password});}}><label className="form-group">Email<input type="email" autoComplete="username" value={email} required disabled={loading} onChange={event=>setEmail(event.target.value)}/></label><label className="form-group">Password<input type="password" autoComplete="current-password" value={password} required disabled={loading} onChange={event=>setPassword(event.target.value)}/></label><div className="native-ai-actions"><button type="button" className="btn btn-outline" disabled={!demo||loading} onClick={fill}>Fill credentials</button><button type="button" className="btn btn-outline" disabled={!demo||loading} onClick={()=>{const pair=fill();if(pair)login(pair);}}>Log In as Demo</button></div>{!demo&&<p className="ai-muted">Demo credential filling is available only with complete configured development credentials. Use your real account to sign in.</p>}{error&&<p role="alert" className="ai-alert">{error}</p>}<button className="btn btn-primary btn-full" disabled={loading} type="submit">{loading?'Signing in…':'Sign In'}</button></form></section></main>;
 }

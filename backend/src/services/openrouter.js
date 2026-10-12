@@ -121,89 +121,25 @@ IMPORTANT: Always respond with valid JSON only (no markdown fences). Use this ex
  * Robustly parse AI JSON output, stripping markdown fences if needed.
  */
 function parseAIJson(text) {
-  if (!text) return null;
-  // Direct parse
-  try { return JSON.parse(text); } catch (e) {}
-  // Strip markdown fences
-  const stripped = text.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
-  try { return JSON.parse(stripped); } catch (e) {}
-  // Extract JSON object
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end !== -1) {
-    try { return JSON.parse(text.slice(start, end + 1)); } catch (e) {}
-  }
-  // Extract JSON array
-  const arrStart = text.indexOf('[');
-  const arrEnd = text.lastIndexOf(']');
-  if (arrStart !== -1 && arrEnd !== -1) {
-    try { return JSON.parse(text.slice(arrStart, arrEnd + 1)); } catch (e) {}
-  }
+  if(typeof text!=='string')return null;
+  const value=text.trim();try{return JSON.parse(value);}catch(_){}
+  const fenced=/^```(?:json)?\s*\n([\s\S]*?)\n```\s*$/i.exec(value);
+  if(fenced)try{return JSON.parse(fenced[1]);}catch(_){}
   return null;
 }
 
 async function generateWithAI(feature, prompt, context) {
-  if (!OPENROUTER_API_KEY) {
-    throw new Error('OPENROUTER_API_KEY is not configured');
-  }
-
   const systemPrompt = SYSTEM_PROMPTS[feature];
-  if (!systemPrompt) {
-    throw new Error(`No system prompt defined for feature: ${feature}`);
-  }
-
-  // Merge context into the system prompt to avoid multiple system messages
-  const fullSystemPrompt = context
-    ? `${systemPrompt}\n\nAdditional context provided by user: ${typeof context === 'string' ? context : JSON.stringify(context)}`
-    : systemPrompt;
-
-  const messages = [
-    { role: 'system', content: fullSystemPrompt },
-    { role: 'user', content: prompt },
-  ];
-
-  const temperature = FEATURE_TEMPERATURES[feature] ?? 0.7;
-  const maxTokens = FEATURE_MAX_TOKENS[feature] ?? 2000;
-
-  const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': process.env.APP_URL || 'http://localhost:3000',
-      'X-Title': 'AI Ad Copy & Creative Generator',
-    },
-    body: JSON.stringify({
-      model: OPENROUTER_MODEL,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-    }),
+  if (!systemPrompt) throw new Error('No native system prompt exists for this feature.');
+  const safety='\n\nAll output is a draft for human review. Do not invent verified measurements, real endorsements, licensed source evidence, consent, approvals, published campaigns or completed external actions. Label any estimates as assumptions; describe absent source facts as missing.';
+  const fullSystemPrompt = context ? systemPrompt + safety + '\n\nAdditional context provided by user: ' + (typeof context === 'string' ? context : JSON.stringify(context)) : systemPrompt + safety;
+  const { providerResponse } = require('./nativeRequest');
+  const response = await providerResponse([{role:'system',content:fullSystemPrompt},{role:'user',content:prompt}], {
+    model: process.env.OPENROUTER_MODEL,
+    temperature: FEATURE_TEMPERATURES[feature] ?? 0.7, maxTokens: FEATURE_MAX_TOKENS[feature] ?? 2000,
   });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    console.error('OpenRouter API error:', response.status, errorBody);
-    throw new Error(`OpenRouter API error: ${response.status} - ${errorBody}`);
-  }
-
-  const data = await response.json();
-
-  if (!data.choices || data.choices.length === 0) {
-    throw new Error('No response generated from AI');
-  }
-
-  const content = data.choices[0].message.content;
-  const tokensUsed = data.usage ? (data.usage.total_tokens || 0) : 0;
-
-  // Use robust JSON parser
-  const parsed = parseAIJson(content);
-
-  return {
-    result: parsed || content,
-    raw: content,
-    tokensUsed,
-  };
+  const parsed = parseAIJson(response.content), tokensUsed = Number.isFinite(response.usage?.total_tokens) ? response.usage.total_tokens : null;
+  return { result: parsed ?? response.content, raw: response.content, tokensUsed, model: response.model, usage: response.usage, providerReceipt: response.providerReceipt };
 }
 
 module.exports = { generateWithAI, SYSTEM_PROMPTS, parseAIJson };

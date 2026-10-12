@@ -1,6 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
-const pool = require('../db');
+const nativeRequest = require('../services/nativeRequest');
+const pool = nativeRequest.requestPool(require('../db'));
 const authMiddleware = require('../middleware/auth');
 const { generateWithAI, SYSTEM_PROMPTS, parseAIJson } = require('../services/openrouter');
 
@@ -8,6 +9,8 @@ const router = express.Router();
 
 // All routes already have auth applied in server.js, but declare it here too for safety
 router.use(authMiddleware);
+nativeRequest.installNativeRequest(router);
+router.use((req,res,next)=>{nativeRequest.beforeCommit(async client=>{const user=await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[req.user.id]);if(!user.rows.length)throw Object.assign(new Error('The saved account is no longer available. Sign in again.'),{status:401});});next();});
 
 const ALLOWED_FEATURES = [
   'ad_copies', 'headlines', 'ab_tests', 'creative_briefs', 'target_audiences',
@@ -41,18 +44,10 @@ const shareSchema = Joi.object({
 
 // Helper to update user monthly token usage
 async function trackTokenUsage(userId, tokensUsed) {
-  if (!tokensUsed) return;
-  try {
-    await pool.query(`
-      INSERT INTO user_settings (user_id, tokens_used_this_month)
-      VALUES ($1, $2)
-      ON CONFLICT (user_id) DO UPDATE
-      SET tokens_used_this_month = user_settings.tokens_used_this_month + $2,
-          updated_at = NOW()
-    `, [userId, tokensUsed]);
-  } catch (e) {
-    console.error('Token tracking error:', e.message);
-  }
+  if (!Number.isFinite(tokensUsed) || tokensUsed <= 0) return;
+  await pool.query(`INSERT INTO user_settings (user_id, tokens_used_this_month)
+    VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE
+    SET tokens_used_this_month = user_settings.tokens_used_this_month + $2, updated_at = NOW()`, [userId,tokensUsed]);
 }
 
 // POST /api/ai/brand-voice-check - Score copy against brand guidelines
@@ -78,9 +73,9 @@ Respond with valid JSON only (no markdown fences): {"score": 0, "overall_assessm
 
     // Persist to generated_content
     const saved = await pool.query(
-      `INSERT INTO generated_content (user_id, feature_type, prompt, result, tokens_used)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
-      [userId, 'brand_voice_check', copy_text.substring(0, 500), JSON.stringify(response.result), tokensUsed]
+      `INSERT INTO generated_content (user_id, feature_type, prompt, result, tokens_used,input,model,provider_receipt)
+       VALUES ($1, $2, $3, $4, $5,$6::jsonb,$7,$8::jsonb) RETURNING id, created_at`,
+      [userId, 'brand_voice_check', copy_text.substring(0, 500), JSON.stringify(response.result), response.tokensUsed,JSON.stringify(value),response.model,JSON.stringify(response.providerReceipt)]
     );
 
     await trackTokenUsage(userId, tokensUsed);
@@ -90,14 +85,15 @@ Respond with valid JSON only (no markdown fences): {"score": 0, "overall_assessm
       response: response.result,
       raw: response.raw,
       saved_id: saved.rows[0].id,
-      tokens_used: tokensUsed,
+      tokens_used: response.tokensUsed,
+      model:response.model,provider_receipt:response.providerReceipt,
     });
   } catch (err) {
     console.error('Brand voice check error:', err);
     if (err.message.includes('OPENROUTER_API_KEY')) {
       return res.status(503).json({ error: 'AI service is not configured' });
     }
-    res.status(500).json({ error: 'Failed to check brand voice', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to check brand voice', details: err.message });
   }
 });
 
@@ -112,19 +108,17 @@ router.post('/generate', async (req, res) => {
 
     // Optionally inject active brand profile as context
     let enrichedContext = context;
-    try {
-      const bp = await pool.query(
-        `SELECT * FROM brand_profiles WHERE user_id = $1 AND is_active = true LIMIT 1`,
-        [userId]
-      );
-      if (bp.rows.length > 0) {
-        const profile = bp.rows[0];
-        const brandCtx = `Brand: ${profile.name}. Industry: ${profile.industry || 'N/A'}. Tone: ${profile.tone_of_voice || 'N/A'}. Target: ${profile.target_persona || 'N/A'}.`;
-        enrichedContext = enrichedContext ? `${enrichedContext}\n${brandCtx}` : brandCtx;
-      }
-    } catch (e) {
-      // Non-fatal: brand profile injection is best-effort
+    const bp = await pool.query('SELECT * FROM brand_profiles WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1',[userId]);
+    const profile = bp.rows[0] || null;
+    if (profile) {
+      const brandCtx = JSON.stringify({name:profile.name,industry:profile.industry,tone_of_voice:profile.tone_of_voice,target_persona:profile.target_persona,competitor_names:profile.competitor_names,brand_guidelines:profile.brand_guidelines});
+      enrichedContext = (context ? (typeof context==='string'?context:JSON.stringify(context))+'\n' : '')+'Saved active brand profile: '+brandCtx;
     }
+    nativeRequest.beforeCommit(async client=>{
+      const fresh=(await client.query('SELECT * FROM brand_profiles WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1 FOR SHARE',[userId])).rows[0]||null;
+      if(JSON.stringify(fresh)!==JSON.stringify(profile))throw Object.assign(new Error('The active saved brand profile changed during generation. Review it and generate again.'),{status:409});
+      if(campaign_id&&!(await client.query('SELECT id FROM campaigns WHERE id=$1 AND user_id=$2 FOR SHARE',[campaign_id,userId])).rows.length)throw Object.assign(new Error('The selected campaign is no longer available.'),{status:409});
+    });
 
     // Validate campaign ownership if provided
     if (campaign_id) {
@@ -142,9 +136,9 @@ router.post('/generate', async (req, res) => {
 
     // Persist AI output to generated_content
     const saved = await pool.query(
-      `INSERT INTO generated_content (user_id, feature_type, prompt, result, tokens_used, campaign_id)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
-      [userId, feature, prompt, JSON.stringify(response.result), tokensUsed, campaign_id || null]
+      `INSERT INTO generated_content (user_id, feature_type, prompt, result, tokens_used, campaign_id,input,model,provider_receipt)
+       VALUES ($1, $2, $3, $4, $5, $6,$7::jsonb,$8,$9::jsonb) RETURNING id, created_at`,
+      [userId, feature, prompt, JSON.stringify(response.result), response.tokensUsed, campaign_id || null,JSON.stringify(value),response.model,JSON.stringify(response.providerReceipt)]
     );
 
     await trackTokenUsage(userId, tokensUsed);
@@ -155,14 +149,14 @@ router.post('/generate', async (req, res) => {
       response: response.result,
       raw: response.raw,
       saved_id: saved.rows[0].id,
-      tokens_used: tokensUsed,
+      tokens_used: response.tokensUsed,model:response.model,provider_receipt:response.providerReceipt,
     });
   } catch (err) {
     console.error('AI generate error:', err);
     if (err.message.includes('OPENROUTER_API_KEY')) {
       return res.status(503).json({ error: 'AI service is not configured' });
     }
-    res.status(500).json({ error: 'Failed to generate AI content', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to generate AI content', details: err.message });
   }
 });
 
@@ -174,6 +168,8 @@ router.post('/score-copy', async (req, res) => {
 
     const { copy_text, generated_content_id } = value;
     const userId = req.user.id;
+    if(generated_content_id&&!(await pool.query('SELECT id FROM generated_content WHERE id=$1 AND user_id=$2',[generated_content_id,userId])).rows.length)return res.status(404).json({error:'Saved content not found or does not belong to you.'});
+    nativeRequest.beforeCommit(async client=>{if(generated_content_id&&!(await client.query('SELECT id FROM generated_content WHERE id=$1 AND user_id=$2 FOR SHARE',[generated_content_id,userId])).rows.length)throw Object.assign(new Error('The selected saved content changed during scoring.'),{status:409});});
 
     const prompt = `Evaluate this advertising copy on the following dimensions. Be analytical and precise.
 
@@ -214,10 +210,10 @@ Score each dimension 0-100 and provide specific feedback. Respond with valid JSO
         userId,
         generated_content_id || null,
         copy_text.substring(0, 2000),
-        result?.clarity_score || null,
-        result?.emotional_appeal_score || null,
-        result?.cta_strength_score || null,
-        result?.overall_score || null,
+        result?.clarity_score ?? null,
+        result?.emotional_appeal_score ?? null,
+        result?.cta_strength_score ?? null,
+        result?.overall_score ?? null,
         JSON.stringify(result),
       ]
     );
@@ -231,7 +227,7 @@ Score each dimension 0-100 and provide specific feedback. Respond with valid JSO
     });
   } catch (err) {
     console.error('Copy scoring error:', err);
-    res.status(500).json({ error: 'Failed to score copy', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to score copy', details: err.message });
   }
 });
 
@@ -283,7 +279,7 @@ Respond with valid JSON only (no markdown fences):
     });
   } catch (err) {
     console.error('Compliance check error:', err);
-    res.status(500).json({ error: 'Failed to check compliance', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to check compliance', details: err.message });
   }
 });
 
@@ -322,7 +318,7 @@ router.post('/share', async (req, res) => {
     });
   } catch (err) {
     console.error('Share error:', err);
-    res.status(500).json({ error: 'Failed to create share link', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to create share link', details: err.message });
   }
 });
 
@@ -401,7 +397,7 @@ ${copy_text}
     if (err.message.includes('OPENROUTER_API_KEY')) {
       return res.status(503).json({ error: 'AI service is not configured' });
     }
-    res.status(500).json({ error: 'Failed to predict audience sentiment', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to predict audience sentiment', details: err.message });
   }
 });
 
@@ -435,7 +431,7 @@ router.post('/competitor-ad-library', async (req, res) => {
     url.searchParams.set('access_token', process.env.META_AD_LIBRARY_TOKEN);
     url.searchParams.set('fields', 'id,ad_creative_bodies,ad_creative_link_titles,page_name,publisher_platforms');
     url.searchParams.set('limit', '25');
-    const r = await fetch(url.toString());
+    const r = await fetch(url.toString(),{signal:nativeRequest.requestSignal()});
     const body = await r.json();
     if (!r.ok) {
       return res.status(502).json({ error: 'Upstream error', details: body });
@@ -443,7 +439,7 @@ router.post('/competitor-ad-library', async (req, res) => {
     res.json({ source: 'meta_ad_library', results: body.data || [], paging: body.paging || null });
   } catch (err) {
     console.error('Competitor ad library error:', err);
-    res.status(500).json({ error: 'Failed to query competitor ad library', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to query competitor ad library', details: err.message });
   }
 });
 
@@ -481,7 +477,7 @@ router.post('/competitor-monitor', async (req, res) => {
     });
   } catch (err) {
     console.error('Competitor monitor error:', err);
-    res.status(500).json({ error: 'Failed to register monitor', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to register monitor', details: err.message });
   }
 });
 
@@ -501,7 +497,7 @@ router.post('/industry-benchmark', async (req, res) => {
     if (process.env.INDUSTRY_BENCHMARK_API_KEY) {
       // Placeholder: real integration would call the provider here. We keep this
       // additive and avoid network calls without a real provider URL.
-      externalBenchmarks = { provider: 'configured', note: 'External benchmark provider configured but client implementation pending.' };
+      externalBenchmarks = { available:false, provider: 'configured', note: 'External benchmark provider configured but client implementation pending.' };
     }
 
     const prompt = `Industry: ${industry}\nMetric focus: ${metric_focus || 'CTR & conversion rate'}\n\nCopy:\n${copy_text}\n\nReturn JSON: {industry_avg_ctr:"string", industry_avg_conversion:"string", your_estimated_ctr:"string", your_estimated_conversion:"string", percentile_rank:"string", source:"ai_estimate", what_top_performers_do_differently:["string"], improvement_suggestions:["string"]}.`;
@@ -510,7 +506,7 @@ router.post('/industry-benchmark', async (req, res) => {
     res.json({
       benchmark: response.result,
       external: externalBenchmarks,
-      source: externalBenchmarks ? 'mixed' : 'ai_estimate',
+      source: 'ai_estimate',
       tokens_used: response.tokensUsed || 0,
     });
   } catch (err) {
@@ -518,7 +514,7 @@ router.post('/industry-benchmark', async (req, res) => {
     if (err.message && err.message.includes('OPENROUTER_API_KEY')) {
       return res.status(503).json({ error: 'AI service is not configured', missing: 'OPENROUTER_API_KEY' });
     }
-    res.status(500).json({ error: 'Failed to compute benchmark', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to compute benchmark', details: err.message });
   }
 });
 
@@ -565,7 +561,7 @@ router.post('/ad-platform-upload', async (req, res) => {
     res.json({ upload: ins.rows[0], note: 'Upload queued; external worker required to push to platform.' });
   } catch (err) {
     console.error('Ad platform upload error:', err);
-    res.status(500).json({ error: 'Failed to queue upload', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to queue upload', details: err.message });
   }
 });
 
@@ -583,14 +579,14 @@ router.get('/usage', async (req, res) => {
       pool.query(
         `SELECT DATE(created_at) as date, SUM(tokens_used) as tokens, COUNT(*) as generations
          FROM generated_content
-         WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '30 days'
+         WHERE user_id = $1 AND is_demo=FALSE AND created_at >= NOW() - INTERVAL '30 days'
          GROUP BY DATE(created_at) ORDER BY date DESC`,
         [userId]
       ),
       pool.query(
         `SELECT feature_type, SUM(tokens_used) as tokens, COUNT(*) as count
          FROM generated_content
-         WHERE user_id = $1
+         WHERE user_id = $1 AND is_demo=FALSE
          GROUP BY feature_type ORDER BY tokens DESC`,
         [userId]
       ),
@@ -611,7 +607,7 @@ router.get('/usage', async (req, res) => {
     });
   } catch (err) {
     console.error('Usage stats error:', err);
-    res.status(500).json({ error: 'Failed to fetch usage stats', details: err.message });
+    res.status(err.status || 500).json({ error: 'Failed to fetch usage stats', details: err.message });
   }
 });
 

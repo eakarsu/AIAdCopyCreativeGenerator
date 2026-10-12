@@ -14,7 +14,7 @@ router.get('/:token', async (req, res) => {
 
     const result = await pool.query(
       `SELECT st.token, st.expires_at, st.view_count,
-              gc.id as content_id, gc.feature_type, gc.prompt, gc.result, gc.created_at as content_created_at,
+              gc.id as content_id, gc.feature_type, gc.prompt, gc.result, gc.is_demo, gc.demo_label, gc.created_at as content_created_at,
               u.name as author_name
        FROM share_tokens st
        JOIN generated_content gc ON gc.id = st.generated_content_id
@@ -40,6 +40,7 @@ router.get('/:token', async (req, res) => {
         feature_type: row.feature_type,
         prompt: row.prompt,
         result: row.result,
+        is_demo:row.is_demo,demo_label:row.demo_label,
         created_at: row.content_created_at,
         author_name: row.author_name,
       },
